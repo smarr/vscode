@@ -21,7 +21,8 @@ import wbaregistry = require('vs/workbench/common/actionRegistry');
 import viewlet = require('vs/workbench/browser/viewlet');
 import panel = require('vs/workbench/browser/panel');
 import { DebugViewRegistry } from 'vs/workbench/parts/debug/browser/debugViewRegistry';
-import { VariablesView, WatchExpressionsView, CallStackView, BreakpointsView } from 'vs/workbench/parts/debug/electron-browser/debugViews';
+import { VariablesView, WatchExpressionsView, CallStackView, BreakpointsView,
+	ActorView } from 'vs/workbench/parts/debug/electron-browser/debugViews';
 import wbext = require('vs/workbench/common/contributions');
 import * as debug from 'vs/workbench/parts/debug/common/debug';
 import { DebugEditorModelManager } from 'vs/workbench/parts/debug/browser/debugEditorModelManager';
@@ -113,6 +114,7 @@ DebugViewRegistry.registerDebugView(VariablesView, 10);
 DebugViewRegistry.registerDebugView(WatchExpressionsView, 20);
 DebugViewRegistry.registerDebugView(CallStackView, 30);
 DebugViewRegistry.registerDebugView(BreakpointsView, 40);
+DebugViewRegistry.registerDebugView(ActorView, 50);
 
 // register action to open viewlet
 const registry = (<wbaregistry.IWorkbenchActionRegistry>platform.Registry.as(wbaregistry.Extensions.WorkbenchActions));

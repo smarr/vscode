@@ -550,6 +550,143 @@ export abstract class CollapsibleViewletView extends CollapsibleView implements 
 	}
 }
 
+/**
+ * The AdaptiveCollapsibleViewletView can grow with the content inside dynamically.
+ */
+export abstract class CollapsibleNonTreeViewletView extends CollapsibleView implements IViewletView {
+	protected treeContainer: HTMLElement;
+	protected toDispose: IDisposable[];
+	protected isVisible: boolean;
+	protected toolBar: ToolBar;
+	protected actionRunner: IActionRunner;
+	protected isDisposed: boolean;
+
+	private dragHandler: DelayedDragHandler;
+
+	constructor(
+		actionRunner: IActionRunner,
+		collapsed: boolean,
+		private viewName: string,
+		protected messageService: IMessageService,
+		private keybindingService: IKeybindingService,
+		protected contextMenuService: IContextMenuService,
+		headerSize?: number
+	) {
+		super({
+			minimumSize: 2 * 22,
+			initialState: collapsed ? CollapsibleState.COLLAPSED : CollapsibleState.EXPANDED,
+			ariaHeaderLabel: viewName,
+			headerSize
+		});
+
+		this.actionRunner = actionRunner;
+		this.toDispose = [];
+	}
+
+	protected changeState(state: CollapsibleState): void {
+		// updateTreeVisibility(this.tree, state === CollapsibleState.EXPANDED);
+
+		super.changeState(state);
+	}
+
+	public create(): TPromise<void> {
+		return TPromise.as(null);
+	}
+
+	public renderHeader(container: HTMLElement): void {
+
+		// Tool bar
+		this.toolBar = new ToolBar($('div.actions').appendTo(container).getHTMLElement(), this.contextMenuService, {
+			orientation: ActionsOrientation.HORIZONTAL,
+			actionItemProvider: (action) => { return this.getActionItem(action); },
+			ariaLabel: nls.localize('viewToolbarAriaLabel', "{0} actions", this.viewName),
+			getKeyBinding: (action) => {
+				const opts = this.keybindingService.lookupKeybindings(action.id);
+				if (opts.length > 0) {
+					return opts[0]; // only take the first one
+				}
+
+				return null;
+			}
+		});
+		this.toolBar.actionRunner = this.actionRunner;
+		this.toolBar.setActions(prepareActions(this.getActions()), prepareActions(this.getSecondaryActions()))();
+
+		// Expand on drag over
+		this.dragHandler = new DelayedDragHandler(container, () => {
+			if (!this.isExpanded()) {
+				this.expand();
+			}
+		});
+	}
+
+	protected renderViewTree(container: HTMLElement): HTMLElement {
+		return renderViewTree(container);
+	}
+
+	public getViewer(): ITree {
+		// return this.tree;
+		return null;
+	}
+
+	public setVisible(visible: boolean): TPromise<void> {
+		this.isVisible = visible;
+
+		// updateTreeVisibility(this.tree, visible && this.state === CollapsibleState.EXPANDED);
+
+		return TPromise.as(null);
+	}
+
+	public focusBody(): void {
+		// focus(this.tree);
+	}
+
+	// protected reveal(element: any, relativeTop?: number): TPromise<void> {
+	// 	return reveal(this.tree, element, relativeTop);
+	// }
+
+	public layoutBody(size: number): void {
+		this.treeContainer.style.height = size + 'px';
+		// this.tree.layout(size);
+	}
+
+	public getActions(): IAction[] {
+		return [];
+	}
+
+	public getSecondaryActions(): IAction[] {
+		return [];
+	}
+
+	public getActionItem(action: IAction): IActionItem {
+		return null;
+	}
+
+	public shutdown(): void {
+		// Subclass to implement
+	}
+
+	public dispose(): void {
+		this.isDisposed = true;
+		this.treeContainer = null;
+		// this.tree.dispose();
+
+		if (this.dragHandler) {
+			this.dragHandler.dispose();
+		}
+
+		this.toDispose = dispose(this.toDispose);
+
+		if (this.toolBar) {
+			this.toolBar.dispose();
+		}
+
+		super.dispose();
+	}
+}
+
+
+
 function renderViewTree(container: HTMLElement): HTMLElement {
 	let treeContainer = document.createElement('div');
 	container.appendChild(treeContainer);

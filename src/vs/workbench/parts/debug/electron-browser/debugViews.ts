@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import 'vs/css!./../browser/media/actorview';
 import nls = require('vs/nls');
 import paths = require('vs/base/common/paths');
 import dom = require('vs/base/browser/dom');
@@ -25,6 +26,8 @@ import { IInstantiationService } from 'vs/platform/instantiation/common/instanti
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { IMessageService } from 'vs/platform/message/common/message';
 import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
+
+import d3 = require('d3');
 
 import IDebugService = debug.IDebugService;
 
@@ -419,3 +422,232 @@ export class BreakpointsView extends viewlet.AdaptiveCollapsibleViewletView {
 		super.shutdown();
 	}
 }
+
+interface MsgLink extends d3.layout.force.Link<d3.layout.force.Node> {
+	messageCount: number;
+}
+
+export class ActorView extends viewlet.CollapsibleNonTreeViewletView {
+	private static MEMENTO = 'actorview.memento';
+
+	private path;
+	private circle;
+	private links;
+	private nodes;
+	private force;
+	private d3colors;
+
+	constructor(
+		actionRunner: actions.IActionRunner,
+		private settings: any,
+		@IMessageService messageService: IMessageService,
+		@IContextMenuService contextMenuService: IContextMenuService,
+		@IDebugService private debugService: IDebugService,
+		@IKeybindingService keybindingService: IKeybindingService,
+		@IInstantiationService private instantiationService: IInstantiationService
+	) {
+		super(actionRunner, !!settings[ActorView.MEMENTO], 'Actor View',
+					messageService, keybindingService, contextMenuService);
+		// this.toDispose.push(this.debugService.getModel().onDidChangeBreakpoints(() => this.onBreakpointsChange()));
+	}
+
+	public renderHeader(container: HTMLElement): void {
+		const titleDiv = $('div.title').appendTo(container);
+		$('span').text('Actor View').appendTo(titleDiv);
+
+		super.renderHeader(container);
+	}
+
+	public renderBody(container: HTMLElement): void {
+		this.treeContainer = renderViewTree(container);
+		const content = $('div.actor-view-content').appendTo(this.treeContainer);
+
+		// const e = $('h1').text('TEST');
+		// e.appendTo(content);
+		// e.on('click', e => {this.displayMessageHistory();});
+		this.displayMessageHistory();
+	}
+
+	private displayMessageHistory(/* msgHist */) {
+		this.d3colors = d3.scale.category10();
+		const width = 300, height = 300;
+
+		var svg = d3.select(this.treeContainer)
+			.append('svg')
+			//.attr('oncontextmenu', 'return false;')
+			.attr('width', width)
+			.attr('height', height);
+
+		// set up initial nodes and links
+		//  - nodes are known by 'id', not by index in array.
+		//  - reflexive edges are indicated on the node (as a bold black circle).
+		//  - links are always source < target; edge directions are set by 'left' and 'right'.
+		// var nodeMap = determineNodes(msgHist);
+		// nodes = mapToArray(nodeMap);
+		this.nodes = [
+			{id: 'Master', reflexive: false,     x: 100, y: 0,   type: 'Master'},   // 0
+			{id: 'Producer', reflexive: false,   x: 100, y: 100, type: 'Producer'}, // 1
+			{id: 'Sort 1', reflexive: false,     x: 100, y: 200, type: 'Sort'}, // 2
+			{id: 'Sort 2', reflexive: false,     x: 200, y: 200, type: 'Sort'}, // 3
+			{id: 'Sort 3', reflexive: false,     x: 300, y: 200, type: 'Sort'},
+			{id: 'Sort 4', reflexive: false,     x: 400, y: 200, type: 'Sort'},
+			{id: 'Validator', reflexive: false,  x: 100, y: 300, type: 'Validator'},
+		];
+
+		// links = determineLinks(msgHist, nodeMap);
+		this.links = [
+			{source: this.nodes[0], target: this.nodes[1], left: false, right: true, messageCount: 1 },
+			{source: this.nodes[1], target: this.nodes[2], left: false, right: true, messageCount: 1000 },
+			{source: this.nodes[2], target: this.nodes[3], left: false, right: true, messageCount: 1000 },
+			{source: this.nodes[3], target: this.nodes[4], left: false, right: true, messageCount: 1000 },
+			{source: this.nodes[4], target: this.nodes[5], left: false, right: true, messageCount: 1000 },
+			{source: this.nodes[5], target: this.nodes[6], left: false, right: true, messageCount: 1000 },
+			{source: this.nodes[6], target: this.nodes[0], left: false, right: true, messageCount: 1 },
+		];
+
+		// hack:
+		const maxMessageCount = 1000;
+
+		// init D3 force layout
+		this.force = d3.layout.force()
+			.nodes(this.nodes)
+			.links(this.links)
+			.size([width, height])
+			.linkDistance(70)
+			.charge(-500)
+			.on('tick', this.tick.bind(this));
+
+		this.force.linkStrength((link: MsgLink) => { return link.messageCount / maxMessageCount; });
+
+		// define arrow markers for graph links
+		svg.append('svg:defs').append('svg:marker')
+			.attr('id', 'end-arrow')
+			.attr('viewBox', '0 -5 10 10')
+			.attr('refX', 6)
+			.attr('markerWidth', 3)
+			.attr('markerHeight', 3)
+			.attr('orient', 'auto')
+			.append('svg:path')
+			.attr('d', 'M0,-5L10,0L0,5')
+			.attr('fill', '#000');
+
+		svg.append('svg:defs').append('svg:marker')
+			.attr('id', 'start-arrow')
+			.attr('viewBox', '0 -5 10 10')
+			.attr('refX', 4)
+			.attr('markerWidth', 3)
+			.attr('markerHeight', 3)
+			.attr('orient', 'auto')
+			.append('svg:path')
+			.attr('d', 'M10,-5L0,0L10,5')
+			.attr('fill', '#000');
+
+		// handles to link and node element groups
+		this.path = svg.append('svg:g').selectAll('path');
+		this.circle = svg.append('svg:g').selectAll('g');
+
+		this.restart();
+	}
+
+	// update force layout (called automatically each iteration)
+	private tick() {
+		// draw directed edges with proper padding from node centers
+		this.path.attr('d', function(d) {
+			var deltaX = d.target.x - d.source.x,
+				deltaY = d.target.y - d.source.y,
+				dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY),
+				normX = deltaX / dist,
+				normY = deltaY / dist,
+				sourcePadding = d.left ? 17 : 12,
+				targetPadding = d.right ? 17 : 12,
+				sourceX = d.source.x + (sourcePadding * normX),
+				sourceY = d.source.y + (sourcePadding * normY),
+				targetX = d.target.x - (targetPadding * normX),
+				targetY = d.target.y - (targetPadding * normY);
+			return 'M' + sourceX + ',' + sourceY + 'L' + targetX + ',' + targetY;
+		});
+
+		this.circle.attr('transform', function(d) {
+			return 'translate(' + d.x + ',' + d.y + ')';
+		});
+	}
+
+	// update graph (called when needed)
+	private restart() {
+		// path (link) group
+		this.path = this.path.data(this.links);
+
+		// update existing links
+		this.path  //.classed('selected', function(d) { return d === selected_link; })
+			.style('marker-start', function(d) { return d.left ? 'url(#start-arrow)' : ''; })
+			.style('marker-end', function(d) { return d.right ? 'url(#end-arrow)' : ''; });
+
+
+		// add new links
+		this.path.enter().append('svg:path')
+			.attr('class', 'link')
+			// .classed('selected', function(d) { return d === selected_link; })
+			.style('marker-start', function(d) { return d.left ? 'url(#start-arrow)' : ''; })
+			.style('marker-end', function(d) { return d.right ? 'url(#end-arrow)' : ''; });
+
+		// remove old links
+		this.path.exit().remove();
+
+
+		// circle (node) group
+		// NB: the function arg is crucial here! nodes are known by id, not by index!
+		this.circle = this.circle.data(this.nodes, function(d) { return d.id; });
+
+		// update existing nodes (reflexive & selected visual states)
+		const d3colors = this.d3colors;
+		this.circle.selectAll('circle')
+			.style('fill', function(d) {
+				return d3colors(d.id);
+			})
+			.classed('reflexive', function(d) { return d.reflexive; });
+
+		// add new nodes
+		var g = this.circle.enter().append('svg:g');
+
+		g.append("rect")
+			.attr("rx", 6)
+			.attr("ry", 6)
+			.attr("x", -12.5)
+			.attr("y", -12.5)
+			.attr("width", 50)
+			.attr("height", 25)
+
+			//   g.append('svg:circle')
+			.attr('class', 'node')
+			//     .attr('r', 12)
+			.style('fill', function(d) {
+				return d3colors(d.type);
+			})
+			.style('stroke', function(d) { return d3.rgb(d3colors(d.id)).darker().toString(); })
+			.classed('reflexive', function(d) { return d.reflexive; });
+
+		// show node IDs
+		g.append('svg:text')
+			.attr('x', 8)
+			.attr('y', 4)
+			.attr('class', 'id')
+			.text(function(d) { return d.name; });
+
+		// remove old nodes
+		this.circle.exit().remove();
+
+		// set the graph in motion
+		this.force.start();
+
+		// execute enough steps that the graph looks static
+		for (var i = 0; i < 1000; i++) {
+			this.force.tick();
+		}
+	//   force.stop();
+	}
+}
+
+
+
+
+
